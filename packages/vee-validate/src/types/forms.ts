@@ -207,6 +207,14 @@ export type InvalidSubmissionHandler<
   TOutput extends GenericObject = TInput,
 > = (ctx: InvalidSubmissionContext<TInput, TOutput>) => void;
 
+/**
+ * A schema that can coerce values into its shape and fill in its defaults, e.g. yup.
+ */
+export interface CastableSchema<TValues = unknown> {
+  cast(value: unknown): TValues;
+  getDefault?(): unknown;
+}
+
 export type RawFormSchema<TValues> = Record<Path<TValues>, string | GenericValidateFunction | GenericObject>;
 
 export type FieldPathLookup<TValues extends GenericObject = GenericObject> = Partial<

@@ -62,11 +62,12 @@ import {
   omit,
   debounceNextTick,
   isStandardSchema,
+  isCastableSchema,
 } from './utils';
 import { FormContextKey, PublicFormContextKey } from './symbols';
 import { validateStandardSchema, validateObjectSchema } from './validate';
 import { refreshInspector, registerFormWithDevTools } from './devtools';
-import { isCallable, merge, normalizeFormPath } from '../../shared';
+import { isCallable, isObject, merge, normalizeFormPath } from '../../shared';
 import { getConfig } from './config';
 import { StandardSchemaV1 } from '@standard-schema/spec';
 
@@ -92,11 +93,30 @@ let FORM_COUNTER = 0;
 
 const PRIVATE_PATH_STATE_KEYS: (keyof PathState)[] = ['bails', 'fieldsCount', 'id', 'multiple', 'type', 'validate'];
 
+function castSchemaValues<TValues extends GenericObject>(schema: unknown, values: TValues): TValues {
+  if (!isCastableSchema(schema)) {
+    return values;
+  }
+
+  try {
+    return (schema.cast(values) || {}) as TValues;
+  } catch (err) {
+    // A value that cannot be coerced to its field type fails the whole cast
+    if (!(err instanceof TypeError)) {
+      throw err;
+    }
+
+    const defaults = schema.getDefault?.();
+
+    return (isObject(defaults) && isObject(values) ? merge(defaults, values) : values) as TValues;
+  }
+}
+
 function resolveInitialValues<TValues extends GenericObject = GenericObject>(opts?: FormOptions<TValues>): TValues {
   const givenInitial = opts?.initialValues || {};
-  const providedValues = { ...toValue(givenInitial) };
+  const providedValues = { ...toValue(givenInitial) } as TValues;
 
-  return deepCopy(providedValues) as TValues;
+  return deepCopy(castSchemaValues(unref(opts?.validationSchema), providedValues));
 }
 
 export function useForm<
@@ -799,6 +819,7 @@ export function useForm<
   function resetForm(resetState?: Partial<FormState<TValues>>, opts?: ResetFormOpts) {
     let newValues = deepCopy(resetState?.values ? resetState.values : originalInitialValues.value);
     newValues = opts?.force ? newValues : merge(originalInitialValues.value, newValues);
+    newValues = castSchemaValues(unref(schema), newValues);
 
     setInitialValues(newValues, { force: opts?.force });
     mutateAllPathState(state => {

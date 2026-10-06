@@ -10,6 +10,7 @@ import {
 } from '@/vee-validate';
 import { mountWithHoc, setValue, flushPromises, dispatchEvent } from './helpers';
 import * as z from 'zod';
+import * as yup from 'yup';
 import { onMounted, ref, Ref } from 'vue';
 import { ModelComp, CustomModelComp } from './helpers/ModelComp';
 
@@ -1488,5 +1489,58 @@ describe('useForm()', () => {
     expect(form.values.file).toBe(f1);
     form.setValues({ file: f2 });
     expect(form.values.file).toEqual(f2);
+  });
+
+  describe('castable schemas', () => {
+    const schema = yup.object({
+      name: yup.string().trim().default(''),
+      subscribe: yup.boolean().default(true),
+      age: yup.number(),
+    });
+
+    function mountForm(validationSchema: unknown, initialValues: Record<string, unknown>) {
+      let form!: FormContext<any>;
+      mountWithHoc({
+        setup() {
+          form = useForm({ validationSchema: validationSchema as any, initialValues });
+
+          return {};
+        },
+        template: `<div></div>`,
+      });
+
+      return form;
+    }
+
+    test('casts initial values and fills schema defaults', async () => {
+      const form = mountForm(schema, { name: '  Jo  ', age: '42' });
+      await flushPromises();
+
+      expect(form.values).toEqual({ name: 'Jo', subscribe: true, age: 42 });
+      expect(form.meta.value.dirty).toBe(false);
+    });
+
+    test('casts values passed to resetForm', async () => {
+      const form = mountForm(schema, {});
+      form.resetForm({ values: { name: ' Al ', age: '7' } });
+      await flushPromises();
+
+      expect(form.values).toEqual({ name: 'Al', subscribe: true, age: 7 });
+      expect(form.meta.value.initialValues).toEqual({ name: 'Al', subscribe: true, age: 7 });
+    });
+
+    test('falls back to defaults merged with the given values when a value cannot be cast', async () => {
+      const form = mountForm(schema, { name: ' Jo ', age: 'not a number' });
+      await flushPromises();
+
+      expect(form.values).toEqual({ name: ' Jo ', subscribe: true, age: 'not a number' });
+    });
+
+    test('leaves values untouched for schemas without cast', async () => {
+      const form = mountForm(z.object({ name: z.string().trim().default('') }), { name: '  Jo  ' });
+      await flushPromises();
+
+      expect(form.values).toEqual({ name: '  Jo  ' });
+    });
   });
 });

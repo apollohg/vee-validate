@@ -1,4 +1,4 @@
-import { Locator } from '../types';
+import { CastableSchema, Locator } from '../types';
 import { isCallable, isObject } from '../../../shared';
 import { IS_ABSENT } from '../symbols';
 import { StandardSchemaV1 } from '@standard-schema/spec';
@@ -11,6 +11,10 @@ export function isLocator(value: unknown): value is Locator {
 
 export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
   return isObject(value) && '~standard' in (value as unknown as StandardSchemaV1);
+}
+
+export function isCastableSchema(value: unknown): value is CastableSchema {
+  return isObject(value) && isCallable((value as unknown as CastableSchema).cast);
 }
 
 export function hasCheckedAttr(type: unknown) {
