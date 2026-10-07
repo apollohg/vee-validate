@@ -1529,6 +1529,24 @@ describe('useForm()', () => {
       expect(form.meta.value.initialValues).toEqual({ name: 'Al', subscribe: true, age: 7 });
     });
 
+    test('keeps fields the schema strips so a reset form stays pristine', async () => {
+      const stripSchema = yup.object({
+        kind: yup.string().default('person'),
+        abn: yup
+          .string()
+          .nullable()
+          .default(null)
+          .when('kind', { is: 'company', otherwise: field => field.strip() }),
+      });
+      const form = mountForm(stripSchema, {});
+      form.resetForm({ values: { kind: 'person', abn: null } });
+      await flushPromises();
+
+      expect(form.values).toEqual({ kind: 'person', abn: null });
+      expect(form.meta.value.initialValues).toEqual({ kind: 'person', abn: null });
+      expect(form.meta.value.dirty).toBe(false);
+    });
+
     test('falls back to defaults merged with the given values when a value cannot be cast', async () => {
       const form = mountForm(schema, { name: ' Jo ', age: 'not a number' });
       await flushPromises();

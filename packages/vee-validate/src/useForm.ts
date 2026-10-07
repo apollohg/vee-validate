@@ -99,7 +99,8 @@ function castSchemaValues<TValues extends GenericObject>(schema: unknown, values
   }
 
   try {
-    return (schema.cast(values) || {}) as TValues;
+    // Fields the schema strips stay in the form state: stripping shapes the submitted output only
+    return merge(deepCopy(values), schema.cast(values) || {}) as TValues;
   } catch (err) {
     // A value that cannot be coerced to its field type fails the whole cast
     if (!(err instanceof TypeError)) {
