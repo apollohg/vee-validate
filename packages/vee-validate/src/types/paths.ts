@@ -188,24 +188,24 @@ type ArrayPathInternal<T, TraversedTypes = T> =
 type ArrayPath<T> = T extends any ? ArrayPathInternal<T> : never;
 
 /**
- * Type to evaluate the type which the given path points to.
- * @typeParam T - deeply nested type which is indexed by the path
- * @typeParam P - path into the deeply nested type
- * @example
- * ```
- * PathValue<{foo: {bar: string}}, 'foo.bar'> = string
- * PathValue<[number, string], '1'> = string
- * ```
+ * Rewrites bracket indices as dot segments, e.g. `foo[0].bar` -> `foo.0.bar`.
  */
-export type PathValue<T, P extends Path<T> | ArrayPath<T>> = T extends any
+type BracketsToDots<P extends string> = P extends `${infer Head}[${infer Index}]${infer Tail}`
+  ? BracketsToDots<`${Head}.${Index}${Tail}`>
+  : P extends `.${infer Rest}`
+    ? Rest
+    : P;
+
+/**
+ * Resolves the value at a dot-separated path.
+ */
+type DotPathValue<T, P extends string> = T extends any
   ? P extends `${infer K}.${infer R}`
     ? K extends keyof T
-      ? R extends Path<T[K]>
-        ? PathValue<T[K], R>
-        : never
+      ? DotPathValue<T[K], R>
       : K extends `${ArrayKey}`
         ? T extends ReadonlyArray<infer V>
-          ? PathValue<V, R & Path<V>>
+          ? DotPathValue<V, R>
           : never
         : never
     : P extends keyof T
@@ -216,6 +216,19 @@ export type PathValue<T, P extends Path<T> | ArrayPath<T>> = T extends any
           : never
         : never
   : never;
+
+/**
+ * Type to evaluate the type which the given path points to.
+ * @typeParam T - deeply nested type which is indexed by the path
+ * @typeParam P - path into the deeply nested type
+ * @example
+ * ```
+ * PathValue<{foo: {bar: string}}, 'foo.bar'> = string
+ * PathValue<{foo: string[]}, 'foo[0]'> = string
+ * PathValue<[number, string], '[1]'> = string
+ * ```
+ */
+export type PathValue<T, P extends Path<T> | ArrayPath<T>> = DotPathValue<T, BracketsToDots<P>>;
 
 /**
  * Type which eagerly collects all paths through a type
