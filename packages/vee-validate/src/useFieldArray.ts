@@ -71,7 +71,12 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     }
   }
 
-  function createEntry(value: TValue, idx?: number, currentFields?: FieldEntry<TValue>[]): FieldEntry<TValue> {
+  function createEntry(
+    value: TValue,
+    idx?: number,
+    currentFields?: FieldEntry<TValue>[],
+    existingKey?: FieldEntry<TValue>['key'],
+  ): FieldEntry<TValue> {
     // Skips the work by returning the current entry if it already exists
     // This should make the `key` prop stable and doesn't cause more re-renders than needed
     // The value is computed and should update anyways
@@ -79,7 +84,7 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
       return currentFields[idx];
     }
 
-    const key = entryCounter++;
+    const key = existingKey ?? entryCounter++;
     const entry: FieldEntry<TValue> = {
       key,
       value: computedDeep<TValue>({
@@ -276,7 +281,8 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
   watch(
     () => toValue(arrayPath),
     () => {
-      fields.value = getCurrentValues().map((v, idx) => createEntry(v, idx));
+      const keys = fields.value.map(f => f.key);
+      fields.value = getCurrentValues().map((v, idx) => createEntry(v, idx, undefined, keys[idx]));
       updateEntryFlags();
     },
     { flush: 'sync' },

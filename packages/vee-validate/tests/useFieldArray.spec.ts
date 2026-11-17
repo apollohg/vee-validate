@@ -622,4 +622,80 @@ describe('field array whose path changes', () => {
     await flushPromises();
     expect(renderedItems()).toEqual(['A1']);
   });
+
+  test('keeps nested rows mounted when the parent array reorders', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {
+      // NOOP
+    });
+    const mountedRows: string[] = [];
+    const ItemRow = defineComponent({
+      props: {
+        label: {
+          type: String,
+          required: true,
+        },
+      },
+      setup(props) {
+        onMounted(() => mountedRows.push(props.label));
+      },
+      template: `<span class="item">{{ label }}</span>`,
+    });
+
+    const SectionItems = defineComponent({
+      components: { ItemRow },
+      props: {
+        index: {
+          type: Number,
+          required: true,
+        },
+      },
+      setup(props) {
+        const { fields, push } = useFieldArray<Item>(() => `sections[${props.index}].items`);
+
+        return { fields, push };
+      },
+      template: `
+        <div>
+          <ItemRow v-for="field in fields" :key="field.key" :label="field.value.label" />
+          <button :id="'add-' + index" @click="push({ label: 'new' })">Add</button>
+        </div>
+      `,
+    });
+
+    let form!: FormContext<{ sections: Section[] }>;
+    let sections!: FieldArrayContext<Section>;
+    mountWithHoc({
+      components: { SectionItems },
+      setup() {
+        form = useForm<{ sections: Section[] }>({ initialValues: { sections: initialSections() } });
+        sections = useFieldArray<Section>('sections');
+
+        return { fields: sections.fields };
+      },
+      template: `
+        <div>
+          <SectionItems v-for="(field, idx) in fields" :key="field.key" :index="idx" />
+        </div>
+      `,
+    });
+
+    await flushPromises();
+    (document.querySelector('#add-0') as HTMLButtonElement).click();
+    await flushPromises();
+    expect(renderedItems()).toEqual(['A1', 'new', 'G1', 'G2']);
+    expect(mountedRows).toEqual(['A1', 'G1', 'G2', 'new']);
+
+    sections.move(0, 1);
+    await flushPromises();
+
+    expect(form.values.sections).toEqual([
+      { label: 'Beta', items: [] },
+      { label: 'Alpha', items: [{ label: 'A1' }, { label: 'new' }] },
+      { label: 'Gamma', items: [{ label: 'G1' }, { label: 'G2' }] },
+    ]);
+    expect(renderedItems()).toEqual(['A1', 'new', 'G1', 'G2']);
+    expect(mountedRows).toEqual(['A1', 'G1', 'G2', 'new']);
+    expect(warnSpy.mock.calls).toEqual([]);
+    warnSpy.mockRestore();
+  });
 });
