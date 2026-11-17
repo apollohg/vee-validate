@@ -49,8 +49,15 @@ export function isPlainObject(value: any) {
   return Object.getPrototypeOf(value) === proto;
 }
 
+// An own `__proto__` key (e.g. from JSON.parse) would otherwise merge into Object.prototype
+const PROTOTYPE_KEY = '__proto__';
+
 export function merge(target: any, source: any) {
   Object.keys(source).forEach(key => {
+    if (key === PROTOTYPE_KEY) {
+      return;
+    }
+
     if (isPlainObject(source[key]) && isPlainObject(target[key])) {
       if (!target[key]) {
         target[key] = {};
