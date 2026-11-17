@@ -272,6 +272,16 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     }
   });
 
+  // Rebuilds the entries when the path changes so their values are never read through the old path
+  watch(
+    () => toValue(arrayPath),
+    () => {
+      fields.value = getCurrentValues().map((v, idx) => createEntry(v, idx));
+      updateEntryFlags();
+    },
+    { flush: 'sync' },
+  );
+
   // Makes sure to sync the form values with the array value if they go out of sync
   // #4153
   watch(getCurrentValues, formValues => {

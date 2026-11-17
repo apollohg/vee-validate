@@ -1,5 +1,5 @@
 import { useForm, useFieldArray, FieldEntry, FormContext, FieldArrayContext, useField } from '@/vee-validate';
-import { defineComponent, nextTick, onMounted, Ref } from 'vue';
+import { defineComponent, nextTick, onMounted, ref, Ref } from 'vue';
 import * as z from 'zod';
 import { mountWithHoc, flushPromises, setValue } from './helpers';
 
@@ -576,4 +576,50 @@ test('errors are available to the newly inserted items', async () => {
   setValue(inputAt(1), '');
   await flushPromises();
   expect(spanAt(1).textContent).toBeTruthy();
+});
+
+describe('field array whose path changes', () => {
+  type Item = { label: string };
+  type Section = { label: string; items: Item[] };
+
+  const initialSections = (): Section[] => [
+    { label: 'Alpha', items: [{ label: 'A1' }] },
+    { label: 'Beta', items: [] },
+    { label: 'Gamma', items: [{ label: 'G1' }, { label: 'G2' }] },
+  ];
+
+  const renderedItems = () => Array.from(document.querySelectorAll('.item')).map(el => el.textContent);
+
+  test('entries read the new path as soon as the path changes', async () => {
+    const arrayPath = ref('sections[1].items');
+    let arr!: FieldArrayContext<Item>;
+    mountWithHoc({
+      setup() {
+        useForm<{ sections: Section[] }>({ initialValues: { sections: initialSections() } });
+        arr = useFieldArray<Item>(arrayPath);
+
+        return { fields: arr.fields };
+      },
+      template: `
+        <div>
+          <span v-for="field in fields" :key="field.key" class="item">{{ field.value.label }}</span>
+        </div>
+      `,
+    });
+
+    await flushPromises();
+    arr.push({ label: 'new' });
+    await flushPromises();
+    expect(renderedItems()).toEqual(['new']);
+
+    arrayPath.value = 'sections[2].items';
+    expect(arr.fields.value.map(f => f.value)).toEqual([{ label: 'G1' }, { label: 'G2' }]);
+    await flushPromises();
+    expect(renderedItems()).toEqual(['G1', 'G2']);
+
+    arrayPath.value = 'sections[0].items';
+    expect(arr.fields.value.map(f => f.value)).toEqual([{ label: 'A1' }]);
+    await flushPromises();
+    expect(renderedItems()).toEqual(['A1']);
+  });
 });
