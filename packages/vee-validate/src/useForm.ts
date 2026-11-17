@@ -407,6 +407,11 @@ export function useForm<
             delete extraErrorsBag.value[path];
           }
 
+          // a hoisted path's own extra error is otherwise never cleared once it is valid
+          if (pathState && !messages.length && extraErrorsBag.value[expectedPath]) {
+            delete extraErrorsBag.value[expectedPath];
+          }
+
           // field not rendered
           if (!pathState) {
             setFieldError(path, messages);

@@ -406,6 +406,46 @@ describe('useForm()', () => {
     expect(form.meta.value.valid).toBe(false);
   });
 
+  test('clears a nested error once the field it is hoisted to becomes valid', async () => {
+    let form!: FormContext<any>;
+    const showField = ref(false);
+    mountWithHoc({
+      setup() {
+        form = useForm({
+          validationSchema: z.object({
+            name: z.object({
+              value: z.string().min(1, REQUIRED_MESSAGE),
+            }),
+          }),
+          initialValues: { name: { value: '' } },
+        });
+
+        return { showField };
+      },
+      template: `
+      <div>
+        <Field v-if="showField" name="name" />
+      </div>
+    `,
+    });
+
+    await flushPromises();
+    const pending = form.validate();
+    await flushPromises();
+    await pending;
+    expect(form.errors.value['name.value']).toBe(REQUIRED_MESSAGE);
+
+    showField.value = true;
+    await flushPromises();
+    form.setFieldValue('name', { value: 'filled' });
+    await flushPromises();
+    const result = form.validate();
+    await flushPromises();
+    expect((await result).valid).toBe(true);
+    expect(form.errors.value).toEqual({});
+    expect(form.meta.value.valid).toBe(true);
+  });
+
   test('resets the meta valid state on reset', async () => {
     let passwordValue!: Ref<string>;
     mountWithHoc({
