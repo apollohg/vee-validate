@@ -31,8 +31,8 @@ jobs:
           registry-url: ${{ env.REGISTRY }}
           scope: '@apollohg'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm vitest run packages/vee-validate packages/shared
       - run: node scripts/build.mjs vee-validate
+      - run: pnpm vitest run packages/vee-validate packages/shared
       - name: Publish <version>-<sha>
         working-directory: packages/vee-validate
         env:
