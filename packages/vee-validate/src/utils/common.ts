@@ -12,7 +12,7 @@ import {
   toValue,
 } from 'vue';
 import { klona as deepCopy } from 'klona/full';
-import { isIndex, isNullOrUndefined, isObject, toNumber } from '../../../shared';
+import { isIndex, isNullOrUndefined, isObject, normalizeFormPath, toNumber } from '../../../shared';
 import { isContainerValue, isEmptyContainer, isEqual, isNotNestedPath } from './assertions';
 import { GenericObject, IssueCollection, MaybePromise } from '../types';
 import { FormContextKey, FieldContextKey } from '../symbols';
@@ -392,5 +392,5 @@ function _combineIssueItems<TItem extends StandardSchemaV1.Issue | IssueCollecti
 export function combineStandardIssues(
   issues: StandardSchemaV1.Issue[] | readonly StandardSchemaV1.Issue[],
 ): IssueCollection[] {
-  return _combineIssueItems(issues, issue => (issue.path ? getDotPath(issue) ?? '' : ''));
+  return _combineIssueItems(issues, issue => (issue.path ? normalizeFormPath(getDotPath(issue) ?? '') : ''));
 }

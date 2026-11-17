@@ -1,6 +1,7 @@
 import { useForm, useFieldArray, FieldEntry, FormContext, FieldArrayContext, useField } from '@/vee-validate';
 import { defineComponent, nextTick, onMounted, ref, Ref } from 'vue';
 import * as z from 'zod';
+import * as yup from 'yup';
 import { mountWithHoc, flushPromises, setValue } from './helpers';
 
 test('can update a field entry model directly', async () => {
@@ -697,5 +698,52 @@ describe('field array whose path changes', () => {
     expect(mountedRows).toEqual(['A1', 'G1', 'G2', 'new']);
     expect(warnSpy.mock.calls).toEqual([]);
     warnSpy.mockRestore();
+  });
+});
+
+describe('field array rows without fields of their own', () => {
+  const REQUIRED_MESSAGE = 'Name is required';
+
+  test('keeps a schema error on a row value that no field renders', async () => {
+    let form!: FormContext<{ rows?: { name: string }[] }>;
+    let arr!: FieldArrayContext<{ name: string }>;
+    mountWithHoc({
+      setup() {
+        form = useForm({
+          validationSchema: yup.object({
+            rows: yup.array(yup.object({ name: yup.string().required(REQUIRED_MESSAGE) })),
+          }),
+          initialValues: { rows: [{ name: 'Kept' }, { name: '' }] },
+        });
+        arr = useFieldArray<{ name: string }>('rows');
+
+        return { fields: arr.fields };
+      },
+      template: `
+        <div>
+          <input v-for="field in fields" :key="field.key" v-model="field.value.name" />
+        </div>
+      `,
+    });
+
+    const validate = async () => {
+      const pending = form.validate();
+      await flushPromises();
+
+      return pending;
+    };
+
+    await flushPromises();
+    const firstAttempt = await validate();
+    const afterValidate = { valid: firstAttempt.valid, errors: { ...form.errors.value } };
+
+    arr.update(1, { name: 'Fixed' });
+    await flushPromises();
+    const secondAttempt = await validate();
+
+    expect({ afterValidate, afterFix: { valid: secondAttempt.valid, errors: { ...form.errors.value } } }).toEqual({
+      afterValidate: { valid: false, errors: { 'rows[1].name': REQUIRED_MESSAGE } },
+      afterFix: { valid: true, errors: {} },
+    });
   });
 });
