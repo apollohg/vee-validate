@@ -3,7 +3,7 @@ import { klona as deepCopy } from 'klona/full';
 import { isNullOrUndefined } from '../../shared';
 import { FormContextKey } from './symbols';
 import { FieldArrayContext, FieldEntry, PrivateFieldArrayContext, PrivateFormContext } from './types';
-import { computedDeep, getFromPath, injectWithSelf, warn, isEqual, setInPath } from './utils';
+import { computedDeep, getChangedPaths, getFromPath, injectWithSelf, warn, isEqual, setInPath } from './utils';
 
 export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<string>): FieldArrayContext<TValue> {
   const form = injectWithSelf(FormContextKey, undefined) as PrivateFormContext;
@@ -113,7 +113,16 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     return entry;
   }
 
-  function afterMutation() {
+  function reindexUnrenderedPaths(previousFields: FieldEntry<TValue>[]) {
+    form.reindexUnrenderedPaths(toValue(arrayPath), index => {
+      const newIndex = fields.value.indexOf(previousFields[index]);
+
+      return newIndex === -1 ? undefined : newIndex;
+    });
+  }
+
+  function afterMutation(previousFields: FieldEntry<TValue>[]) {
+    reindexUnrenderedPaths(previousFields);
     updateEntryFlags();
     // Should trigger a silent validation since a field may not do that #4096
     form?.validate({ mode: 'silent' });
@@ -132,8 +141,9 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     form.destroyPath(fieldPath);
     form.unsetInitialValue(fieldPath);
     setInPath(form.values, pathName, newValue);
+    const previousFields = [...fields.value];
     fields.value.splice(idx, 1);
-    afterMutation();
+    afterMutation(previousFields);
   }
 
   function push(initialValue: TValue) {
@@ -149,8 +159,9 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     newValue.push(value);
     form.stageInitialValue(pathName + `[${newValue.length - 1}]`, value);
     setInPath(form.values, pathName, newValue);
+    const previousFields = [...fields.value];
     fields.value.push(createEntry(value));
-    afterMutation();
+    afterMutation(previousFields);
   }
 
   function swap(indexA: number, indexB: number) {
@@ -172,7 +183,9 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     newFields[indexA] = newFields[indexB];
     newFields[indexB] = tempEntry;
     setInPath(form.values, pathName, newValue);
+    const previousFields = fields.value;
     fields.value = newFields;
+    reindexUnrenderedPaths(previousFields);
     updateEntryFlags();
   }
 
@@ -190,16 +203,18 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     newValue.splice(idx, 0, value);
     newFields.splice(idx, 0, createEntry(value));
     setInPath(form.values, pathName, newValue);
+    const previousFields = fields.value;
     fields.value = newFields;
-    afterMutation();
+    afterMutation(previousFields);
   }
 
   function replace(arr: TValue[]) {
     const pathName = toValue(arrayPath);
     form.stageInitialValue(pathName, arr);
     setInPath(form.values, pathName, arr);
+    const previousFields = fields.value;
     initFields();
-    afterMutation();
+    afterMutation(previousFields);
   }
 
   function update(idx: number, value: TValue) {
@@ -209,7 +224,9 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
       return;
     }
 
-    setInPath(form.values, `${pathName}[${idx}]`, value);
+    const itemPath = `${pathName}[${idx}]`;
+    form.markPathsValidated(getChangedPaths(pathValue[idx], value, itemPath));
+    setInPath(form.values, itemPath, value);
     form?.validate({ mode: 'validated-only' });
   }
 
@@ -225,8 +242,9 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     const newValue = [value, ...normalizedPathValue];
     setInPath(form.values, pathName, newValue);
     form.stageInitialValue(pathName + `[0]`, value);
+    const previousFields = [...fields.value];
     fields.value.unshift(createEntry(value));
-    afterMutation();
+    afterMutation(previousFields);
   }
 
   function move(oldIdx: number, newIdx: number) {
@@ -248,8 +266,9 @@ export function useFieldArray<TValue = unknown>(arrayPath: MaybeRefOrGetter<stri
     newValue.splice(oldIdx, 1);
     newValue.splice(newIdx, 0, movedValue);
     setInPath(form.values, pathName, newValue);
+    const previousFields = fields.value;
     fields.value = newFields;
-    afterMutation();
+    afterMutation(previousFields);
   }
 
   const fieldArrayCtx: FieldArrayContext<TValue> = {

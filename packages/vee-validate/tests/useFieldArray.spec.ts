@@ -704,20 +704,21 @@ describe('field array whose path changes', () => {
 describe('field array rows without fields of their own', () => {
   const REQUIRED_MESSAGE = 'Name is required';
 
-  test('keeps a schema error on a row value that no field renders', async () => {
-    let form!: FormContext<{ rows?: { name: string }[] }>;
-    let arr!: FieldArrayContext<{ name: string }>;
+  type Row = { name: string };
+
+  function mountRows(initialRows: Row[]) {
+    const mounted = {} as { form: FormContext<{ rows?: Row[] }>; arr: FieldArrayContext<Row> };
     mountWithHoc({
       setup() {
-        form = useForm({
+        mounted.form = useForm({
           validationSchema: yup.object({
             rows: yup.array(yup.object({ name: yup.string().required(REQUIRED_MESSAGE) })),
           }),
-          initialValues: { rows: [{ name: 'Kept' }, { name: '' }] },
+          initialValues: { rows: initialRows },
         });
-        arr = useFieldArray<{ name: string }>('rows');
+        mounted.arr = useFieldArray<Row>('rows');
 
-        return { fields: arr.fields };
+        return { fields: mounted.arr.fields };
       },
       template: `
         <div>
@@ -726,24 +727,219 @@ describe('field array rows without fields of their own', () => {
       `,
     });
 
+    const snapshot = () => ({ errors: { ...mounted.form.errors.value }, valid: mounted.form.meta.value.valid });
+
     const validate = async () => {
-      const pending = form.validate();
+      const pending = mounted.form.validate();
       await flushPromises();
 
       return pending;
     };
 
+    return { ...mounted, snapshot, validate };
+  }
+
+  test('keeps a schema error on a row value that no field renders', async () => {
+    const { arr, validate } = mountRows([{ name: 'Kept' }, { name: '' }]);
     await flushPromises();
     const firstAttempt = await validate();
-    const afterValidate = { valid: firstAttempt.valid, errors: { ...form.errors.value } };
+    const afterValidate = { valid: firstAttempt.valid, errors: { ...firstAttempt.errors } };
 
     arr.update(1, { name: 'Fixed' });
     await flushPromises();
     const secondAttempt = await validate();
 
-    expect({ afterValidate, afterFix: { valid: secondAttempt.valid, errors: { ...form.errors.value } } }).toEqual({
+    expect({ afterValidate, afterFix: { valid: secondAttempt.valid, errors: { ...secondAttempt.errors } } }).toEqual({
       afterValidate: { valid: false, errors: { 'rows[1].name': REQUIRED_MESSAGE } },
       afterFix: { valid: true, errors: {} },
+    });
+  });
+
+  test('hides row errors until the form is validated, while the form stays invalid', async () => {
+    const { arr, snapshot, validate } = mountRows([{ name: '' }]);
+    await flushPromises();
+    const afterMount = snapshot();
+
+    arr.push({ name: '' });
+    await flushPromises();
+    const afterPush = snapshot();
+
+    arr.update(0, { name: 'Typed' });
+    await flushPromises();
+    const afterEditingAnotherRow = snapshot();
+
+    await validate();
+    const afterValidate = snapshot();
+
+    arr.update(1, { name: 'Fixed' });
+    await flushPromises();
+    const afterFix = snapshot();
+
+    expect({ afterMount, afterPush, afterEditingAnotherRow, afterValidate, afterFix }).toEqual({
+      afterMount: { errors: {}, valid: false },
+      afterPush: { errors: {}, valid: false },
+      afterEditingAnotherRow: { errors: {}, valid: false },
+      afterValidate: { errors: { 'rows[1].name': REQUIRED_MESSAGE }, valid: false },
+      afterFix: { errors: {}, valid: true },
+    });
+  });
+
+  test('hides the errors of a row added after a failed validation until the next one', async () => {
+    const { arr, snapshot, validate } = mountRows([{ name: '' }]);
+    await flushPromises();
+    await validate();
+    const afterValidate = snapshot();
+
+    arr.push({ name: '' });
+    await flushPromises();
+    const afterPush = snapshot();
+
+    await validate();
+    const afterRevalidate = snapshot();
+
+    expect({ afterValidate, afterPush, afterRevalidate }).toEqual({
+      afterValidate: { errors: { 'rows[0].name': REQUIRED_MESSAGE }, valid: false },
+      afterPush: { errors: { 'rows[0].name': REQUIRED_MESSAGE }, valid: false },
+      afterRevalidate: { errors: { 'rows[0].name': REQUIRED_MESSAGE, 'rows[1].name': REQUIRED_MESSAGE }, valid: false },
+    });
+  });
+
+  test('moves a shown row error with the row when an earlier row is removed', async () => {
+    const { arr, snapshot, validate } = mountRows([{ name: 'Kept' }, { name: '' }]);
+    await flushPromises();
+    await validate();
+    const afterValidate = snapshot();
+
+    arr.remove(0);
+    await flushPromises();
+    const afterRemove = snapshot();
+
+    expect({ afterValidate, afterRemove }).toEqual({
+      afterValidate: { errors: { 'rows[1].name': REQUIRED_MESSAGE }, valid: false },
+      afterRemove: { errors: { 'rows[0].name': REQUIRED_MESSAGE }, valid: false },
+    });
+  });
+
+  test('shows the error of a row that passed validation once it is made invalid', async () => {
+    const { arr, snapshot, validate } = mountRows([{ name: 'Kept' }, { name: '' }]);
+    await flushPromises();
+    await validate();
+    const afterValidate = snapshot();
+
+    arr.update(0, { name: '' });
+    await flushPromises();
+    const afterClearingTheValidRow = snapshot();
+
+    expect({ afterValidate, afterClearingTheValidRow }).toEqual({
+      afterValidate: { errors: { 'rows[1].name': REQUIRED_MESSAGE }, valid: false },
+      afterClearingTheValidRow: {
+        errors: { 'rows[0].name': REQUIRED_MESSAGE, 'rows[1].name': REQUIRED_MESSAGE },
+        valid: false,
+      },
+    });
+  });
+
+  test('swaps shown row errors with their rows and keeps a row added later quiet', async () => {
+    const { arr, snapshot, validate } = mountRows([{ name: 'Kept' }, { name: '' }]);
+    await flushPromises();
+    await validate();
+
+    arr.swap(0, 1);
+    await flushPromises();
+    const afterSwap = snapshot();
+
+    arr.remove(0);
+    arr.push({ name: '' });
+    await flushPromises();
+    const afterReplacingTheInvalidRow = snapshot();
+
+    expect({ afterSwap, afterReplacingTheInvalidRow }).toEqual({
+      afterSwap: { errors: { 'rows[0].name': REQUIRED_MESSAGE }, valid: false },
+      afterReplacingTheInvalidRow: { errors: {}, valid: false },
+    });
+  });
+
+  test('shows the error of the row that is edited and no other', async () => {
+    const { arr, snapshot } = mountRows([{ name: 'Kept' }, { name: 'Kept' }]);
+    await flushPromises();
+
+    arr.push({ name: '' });
+    arr.update(1, { name: '' });
+    await flushPromises();
+
+    expect(snapshot()).toEqual({ errors: { 'rows[1].name': REQUIRED_MESSAGE }, valid: false });
+  });
+
+  test('shows a rule on the whole array once a field inside it is validated', async () => {
+    const AT_LEAST_ONE_MESSAGE = 'Name at least one row';
+    let form!: FormContext<{ rows?: Row[] }>;
+    const RowName = defineComponent({
+      props: { name: { type: String, required: true } },
+      setup(props) {
+        const { value } = useField<string>(() => props.name);
+
+        return { value };
+      },
+      template: '<input v-model="value" />',
+    });
+
+    mountWithHoc({
+      components: { RowName },
+      setup() {
+        form = useForm({
+          validationSchema: yup.object({
+            rows: yup
+              .array(yup.object({ name: yup.string().defined() }))
+              .test('named', AT_LEAST_ONE_MESSAGE, rows => !!rows?.some(row => row.name)),
+          }),
+          initialValues: { rows: [{ name: '' }, { name: '' }] },
+        });
+
+        return { rows: form.values.rows };
+      },
+      template: `<div><RowName v-for="(row, idx) in rows" :key="idx" :name="'rows[' + idx + '].name'" /></div>`,
+    });
+
+    await flushPromises();
+    const afterMount = { errors: { ...form.errors.value }, valid: form.meta.value.valid };
+
+    setValue(document.querySelector('input') as HTMLInputElement, '');
+    await flushPromises();
+    const afterLeavingARowBlank = { errors: { ...form.errors.value }, valid: form.meta.value.valid };
+
+    expect({ afterMount, afterLeavingARowBlank }).toEqual({
+      afterMount: { errors: {}, valid: false },
+      afterLeavingARowBlank: { errors: { rows: AT_LEAST_ONE_MESSAGE }, valid: false },
+    });
+  });
+
+  test('shows only the row error that validateField asks for', async () => {
+    const { form, snapshot } = mountRows([{ name: '' }, { name: '' }]);
+    await flushPromises();
+
+    const pending = form.validateField('rows[1].name');
+    await flushPromises();
+    const result = await pending;
+
+    expect({ result, state: snapshot() }).toEqual({
+      result: { errors: [REQUIRED_MESSAGE], valid: false },
+      state: { errors: { 'rows[1].name': REQUIRED_MESSAGE }, valid: false },
+    });
+  });
+
+  test('hides row errors again after the form is reset', async () => {
+    const { form, snapshot, validate } = mountRows([{ name: '' }]);
+    await flushPromises();
+    await validate();
+    const afterValidate = snapshot();
+
+    form.resetForm();
+    await flushPromises();
+    const afterReset = snapshot();
+
+    expect({ afterValidate, afterReset }).toEqual({
+      afterValidate: { errors: { 'rows[0].name': REQUIRED_MESSAGE }, valid: false },
+      afterReset: { errors: {}, valid: false },
     });
   });
 });

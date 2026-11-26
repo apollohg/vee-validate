@@ -51,6 +51,7 @@ import {
 } from './types';
 import {
   getFromPath,
+  getValuePaths,
   keysOf,
   setInPath,
   unsetPath,
@@ -149,6 +150,10 @@ export function useForm<
   const pathStates = ref<PathState<unknown>[]>([]);
 
   const extraErrorsBag: Ref<FormErrorBag<TValues>> = ref({});
+
+  // paths without a path state carry their own validity, and show errors once they or a path below them was validated
+  const invalidUnrenderedPaths = ref(new Set<string>());
+  const validatedPaths = new Set<string>();
 
   const pathStateLookup = ref<Record<string, PathState>>({});
 
@@ -265,7 +270,7 @@ export function useForm<
   );
 
   // form meta aggregations
-  const meta = useFormMeta(pathStates, formValues, originalInitialValues, errors);
+  const meta = useFormMeta(pathStates, formValues, originalInitialValues, errors, invalidUnrenderedPaths);
 
   const controlledValues = computed(() => {
     return pathStates.value.reduce((acc, state) => {
@@ -382,6 +387,7 @@ export function useForm<
       const paths = [
         ...new Set([...keysOf(formResult.results), ...pathStates.value.map(p => p.path), ...currentErrorsPaths]),
       ].sort() as string[];
+      const invalidPaths = new Set<string>();
 
       // aggregates the paths into a single result object while applying the results on the fields
       const results = paths.reduce(
@@ -412,9 +418,19 @@ export function useForm<
             delete extraErrorsBag.value[expectedPath];
           }
 
-          // field not rendered
+          // field not rendered: a new error is only shown once its path was validated
           if (!pathState) {
-            setFieldError(path, messages);
+            if (messages.length) {
+              invalidPaths.add(path);
+            }
+
+            if (mode === 'force') {
+              validatedPaths.add(path);
+            }
+
+            if (isUnrenderedPathValidated(path) || extraErrorsBag.value[path]) {
+              setFieldError(path, messages);
+            }
 
             return validation;
           }
@@ -440,6 +456,8 @@ export function useForm<
           source: formResult.source,
         } as FormValidationResult<TValues>,
       );
+
+      invalidUnrenderedPaths.value = invalidPaths;
 
       if (formResult.values) {
         results.values = formResult.values;
@@ -636,6 +654,52 @@ export function useForm<
     });
   }
 
+  function markPathsValidated(paths: string[]) {
+    paths.forEach(path => validatedPaths.add(path));
+  }
+
+  function isUnrenderedPathValidated(path: string) {
+    const isAtOrBelow = (candidate: string) =>
+      candidate === path || candidate.startsWith(`${path}.`) || candidate.startsWith(`${path}[`);
+
+    return (
+      [...validatedPaths].some(isAtOrBelow) ||
+      pathStates.value.some(state => state.validated && isAtOrBelow(toValue(state.path)))
+    );
+  }
+
+  function reindexUnrenderedPaths(arrayPath: string, newIndexOf: (index: number) => number | undefined) {
+    const prefix = `${normalizeFormPath(arrayPath)}[`;
+    const reindex = (path: string) => {
+      if (!path.startsWith(prefix)) {
+        return path;
+      }
+
+      const indexEnd = path.indexOf(']', prefix.length);
+      const newIndex = newIndexOf(Number(path.slice(prefix.length, indexEnd)));
+
+      return newIndex === undefined ? undefined : `${prefix}${newIndex}${path.slice(indexEnd)}`;
+    };
+
+    const previousValidatedPaths = [...validatedPaths];
+    validatedPaths.clear();
+    previousValidatedPaths.forEach(path => {
+      const newPath = reindex(path);
+      if (newPath !== undefined) {
+        validatedPaths.add(newPath);
+      }
+    });
+
+    extraErrorsBag.value = keysOf(extraErrorsBag.value).reduce((bag, path) => {
+      const newPath = reindex(path);
+      if (newPath !== undefined) {
+        bag[newPath as Path<TValues>] = extraErrorsBag.value[path];
+      }
+
+      return bag;
+    }, {} as FormErrorBag<TValues>);
+  }
+
   const formCtx: PrivateFormContext<TValues, TOutput> = {
     name,
     formId,
@@ -673,6 +737,8 @@ export function useForm<
     initialValues: initialValues as Ref<TValues>,
     getAllPathStates: () => pathStates.value,
     destroyPath,
+    reindexUnrenderedPaths,
+    markPathsValidated,
     isFieldTouched,
     isFieldDirty,
     isFieldValid,
@@ -838,6 +904,8 @@ export function useForm<
     });
 
     opts?.force ? forceSetValues(newValues, false) : setValues(newValues, false);
+    validatedPaths.clear();
+    extraErrorsBag.value = {};
     setErrors(resetState?.errors || {});
     submitCount.value = resetState?.submitCount || 0;
     nextTick(() => {
@@ -853,6 +921,7 @@ export function useForm<
     const mode = opts?.mode || 'force';
     if (mode === 'force') {
       mutateAllPathState(f => (f.validated = true));
+      markPathsValidated(getValuePaths(formValues));
     }
 
     if (formCtx.validateSchema) {
@@ -919,8 +988,11 @@ export function useForm<
     opts?: Partial<ValidationOptions>,
   ): Promise<ValidationResult<TOutput[TPath]>> {
     const state = findPathState(path);
-    if (state && opts?.mode !== 'silent') {
-      state.validated = true;
+    if (opts?.mode !== 'silent') {
+      validatedPaths.add(normalizeFormPath(path));
+      if (state) {
+        state.validated = true;
+      }
     }
 
     if (schema) {
@@ -1131,6 +1203,7 @@ function useFormMeta<TValues extends Record<string, unknown>>(
   currentValues: TValues,
   initialValues: MaybeRef<PartialDeep<TValues>>,
   errors: Ref<FormErrors<TValues>>,
+  invalidUnrenderedPaths: Ref<Set<string>>,
 ) {
   const MERGE_STRATEGIES: Record<keyof Pick<FieldMeta<unknown>, 'touched' | 'pending' | 'valid'>, 'every' | 'some'> = {
     touched: 'some',
@@ -1169,7 +1242,7 @@ function useFormMeta<TValues extends Record<string, unknown>>(
     return {
       initialValues: unref(initialValues) as Partial<TValues>,
       ...flags,
-      valid: flags.valid && !keysOf(errors.value).length,
+      valid: flags.valid && !keysOf(errors.value).length && !invalidUnrenderedPaths.value.size,
       dirty: isDirty.value,
     };
   });

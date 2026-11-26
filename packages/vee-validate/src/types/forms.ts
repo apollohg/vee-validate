@@ -337,6 +337,8 @@ export interface PrivateFormContext<
   removePathState<TPath extends Path<TValues>>(path: TPath, id: number): void;
   unsetPathValue<TPath extends Path<TValues>>(path: TPath): void;
   destroyPath(path: string): void;
+  reindexUnrenderedPaths(arrayPath: string, newIndexOf: (index: number) => number | undefined): void;
+  markPathsValidated(paths: string[]): void;
   isFieldTouched<TPath extends Path<TValues>>(path: TPath): boolean;
   isFieldDirty<TPath extends Path<TValues>>(path: TPath): boolean;
   isFieldValid<TPath extends Path<TValues>>(path: TPath): boolean;
@@ -364,6 +366,8 @@ export interface FormContext<TValues extends GenericObject = GenericObject, TOut
     | 'stageInitialValue'
     | 'setFieldInitialValue'
     | 'unsetInitialValue'
+    | 'reindexUnrenderedPaths'
+    | 'markPathsValidated'
     | 'fieldArrays'
     | 'markForUnmount'
     | 'keepValuesOnUnmount'

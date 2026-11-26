@@ -2438,12 +2438,16 @@ describe('<Form />', () => {
       <VForm :validation-schema="schema" v-slot="{ errors }">
         <Field v-if="isShown" name="fname" v-model="modelValue" />
         <span>{{ errors.fname }}</span>
+        <button>Validate</button>
       </VForm>
     `,
     });
 
     await flushPromises();
     const span = wrapper.$el.querySelector('span');
+    expect(span.textContent).toBe('');
+    wrapper.$el.querySelector('button').click();
+    await flushPromises();
     expect(span.textContent).toBe(REQUIRED_MESSAGE);
     modelValue.value = 'hello';
     isShown.value = true;

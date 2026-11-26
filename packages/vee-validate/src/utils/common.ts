@@ -12,7 +12,7 @@ import {
   toValue,
 } from 'vue';
 import { klona as deepCopy } from 'klona/full';
-import { isIndex, isNullOrUndefined, isObject, normalizeFormPath, toNumber } from '../../../shared';
+import { isIndex, isNullOrUndefined, isObject, isPlainObject, normalizeFormPath, toNumber } from '../../../shared';
 import { isContainerValue, isEmptyContainer, isEqual, isNotNestedPath } from './assertions';
 import { GenericObject, IssueCollection, MaybePromise } from '../types';
 import { FormContextKey, FieldContextKey } from '../symbols';
@@ -146,6 +146,45 @@ export function unsetPath(object: NestedRecord, path: string): void {
 
     unset(pathValues[i - 1] as Record<string, unknown>, keys[i - 1]);
   }
+}
+
+function getChildEntries(value: unknown, path: string): [string, unknown][] {
+  if (Array.isArray(value)) {
+    return value.map((child, idx) => [`${path}[${idx}]`, child]);
+  }
+
+  if (isPlainObject(value)) {
+    return Object.entries(value as GenericObject).map(([key, child]) => [path ? `${path}.${key}` : key, child]);
+  }
+
+  return [];
+}
+
+/**
+ * Lists the bracket path of every nested object and array value, including the containers themselves
+ */
+export function getValuePaths(value: unknown, path = ''): string[] {
+  return getChildEntries(value, path).flatMap(([childPath, child]) => [childPath, ...getValuePaths(child, childPath)]);
+}
+
+/**
+ * Lists `path` and every path below it whose value differs between `previous` and `next`
+ */
+export function getChangedPaths(previous: unknown, next: unknown, path: string): string[] {
+  if (isEqual(previous, next)) {
+    return [];
+  }
+
+  const previousChildren = new Map(getChildEntries(previous, path));
+  const nextChildren = new Map(getChildEntries(next, path));
+  const childPaths = new Set([...previousChildren.keys(), ...nextChildren.keys()]);
+
+  return [
+    path,
+    ...[...childPaths].flatMap(childPath =>
+      getChangedPaths(previousChildren.get(childPath), nextChildren.get(childPath), childPath),
+    ),
+  ];
 }
 
 /**
